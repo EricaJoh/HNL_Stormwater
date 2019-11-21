@@ -1,0 +1,119 @@
+---
+title: "Conduits"
+author: "Erica Johnson"
+date: "11/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(data.table)
+```
+The storm water conduit shape file was clipped to Wailupe watershed in ArcGIS. 
+
+To be able to bulk import conduits into the SWMM model, conduits need to be matched to their "start"to"" and "end"from nodes or junctions (or storm water structures). 
+
+Tools in ArcGIS were used to get  XY coordinates of the conduits and the structures. They were matched and "spatially joined" into one file by the X-coordinate.
+
+I will determine columns to select, and rename to match the SWMM input file. See example below:
+
+[CONDUITS]								
+;;Name  From Node To Node  Length Roughness InOffset  OutOffset InitFlow  MaxFlow   
+;;--------------	----------------	----------------	----------	----------	----------	----------	----------	----------
+13108	20518	20528	136.3902012	0	0	0	0	0
+
+```{r}
+conduits_data <- read_csv("Conduit_XY_Elev_SpatialJoin.csv")
+```
+
+```{r, include=FALSE}
+
+#Only four columns were selected. There are other columns which seem like they would have values usefull in SWMM, however most are  blank, denoted "NA".
+#We will not use length given in the data for now. SWMM can auto-calculate length from the xy coordinates of the nodes and that seems to work best for now, else you get error messages.
+
+conduits <- conduits_data %>% 
+  select( OBJECTID, ROUGHNESS, OBJECTID_12, RASTERVALU_1) %>% 
+  rename(Name = OBJECTID, Roughness =ROUGHNESS, Nodes = OBJECTID_12, Elevation = RASTERVALU_1) %>% 
+  filter(Nodes !="NA")
+
+#we filter any nodes with NA because each conduit must have 2 nodes for the SWMM model
+
+#then add the rest of the columns. SWMM does not take "NA" the default blank value for R, so we must populate columns with 0.
+
+conduits$InitFlow <- 0
+conduits$MaxFlow <- 0
+conduits$Length <- 0
+conduits$InOffset <- 0
+conduits$OutOffset <- 0
+
+conduits
+
+
+```
+Currently each conduit has two nodes. During the spatial join, a second row was created for each of the conduit's nodes. We need to organize this data so that each conduit has one row, but two columns, one for the higher elevation node ("from"), and the other for the lower elevation node 
+```{r}
+#first sort the data by conduit name then by the associated elevation of the storm structure. The conduit with the higher elevation will be listed first. To match the "to" and "from" convention in SWMM we will eventually switch these.
+conduits[with(conduits, order(Name, Elevation)),]
+
+
+# dcast will reshape or merge duplicate data (in this case "Name) and creat a column for any unique data attached to "Name". It will use the variable "Node" and name unique values of nodes in numerical order.
+
+match <- dcast(setDT(conduits), Name~rowid(Name, prefix="Nodes"), value.var="Nodes")
+
+
+#the match function will only have the two variables. We re-merge data tables together using the merge function, Select the columns we want for SWMM, and remove any duplicates. 
+
+distinct_conduits <- merge(match, conduits, by = "Name") %>% select(Name, Nodes2, Nodes1, Length, Roughness, InOffset, OutOffset, InitFlow, MaxFlow) %>% distinct() %>%
+    mutate(Roughness = if_else(is.na(Roughness), 0.01, Roughness))
+
+#replace all NA values in Roughness (Manning's N) column with 0.01
+
+distinct_conduits
+
+
+
+```
+```{r}
+write.csv(distinct_conduits,"Wailupe_conduits_SWMM.csv", row.names = FALSE)
+```
+
+
+The next file we will prepare are the cross sections of the conduits. See SWMM example below:
+[XSECTIONS]							
+;;Link  Shape	Geom1	Geom2	Geom3 Geom4 Barrels Culvert   
+;;--------------	------------	----------------	----------
+13108	Circular    	0	0	0	0	0	0
+
+```{r}
+#for conduits, use Type 
+xsections <- conduits_data %>% select(OBJECTID, TYPE) %>% rename (Name =OBJECTID, Shapes =TYPE) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Reinforced Concrete Pipe", "Circular")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Box Culvert", "Closed Rectangular")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Channel" , "Trapezoidal")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Ditch" , "Rectangular")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Other", "")) 
+
+#add columns for Geom1, Geom2, Geom3, Geom4,Barrels, and Culvert
+xsections$Geom1 <- 0
+xsections$Geom2 <- 0
+xsections$Geom3 <- 0
+xsections$Geom4 <- 0
+xsections$Barrels <- 0
+xsections$Culvert <- 0
+
+
+                          
+```
+
+```{r}
+
+write.csv(xsections,"Wailupe_xsections_SWMM.csv", row.names = FALSE)
+   
+ 
+```
+

@@ -33,11 +33,19 @@ structure_data <- read_csv("Structure_XY_Elev.csv")
 ```
 
 ```{r}
-junctions_data <- structure_data %>% select(OBJECTID, INVELEV1, CATCHMENT_, DRAINAGE_A, POINT_X, POINT_Y) %>% 
-  rename(Name = OBJECTID, Elevation = INVELEV1, MaxDepth = CATCHMENT_, Aponded = DRAINAGE_A, X_Coord = POINT_X, Y_Coord = POINT_Y)
 #CATCHMENT_ is actually "CATCHMENT_DROP" according to the  USGS data. DRAINAGE_A is drainage area. Catchment and drainage areas are usually used interchangeably, and there doesn't seem to be a definition for catchment drop is USGS. 
 
 #I think catchment drop is depth of the catchment. For this reason, I will use drainage area for area ponded value that SWMM takes and CATCHMENT_DROP as MaxDepth.
+
+#"Elevation" for the structures in SWMM is actually "Invert Elevation". Only 9 out of 950 structures have a value for invert elevation, so we will make use the elevation values from RASTERVALU column.
+
+junctions_data <- structure_data %>% select(OBJECTID, RASTERVALU, CATCHMENT_, DRAINAGE_A, POINT_X, POINT_Y) %>% 
+  rename(Name = OBJECTID, Elevation = RASTERVALU, MaxDepth = CATCHMENT_, Aponded = DRAINAGE_A, X_Coord = POINT_X, Y_Coord = POINT_Y) %>% mutate(Invert_Elev = 1025.880859-Elevation) %>% mutate(MaxDepth = replace_na(MaxDepth, 0)) %>% mutate(Aponded = replace_na(MaxDepth, 0))
+
+# What we want to preserve here is there elevation related to each other, but SWMM will only work with invert elevation. mutate elevation values to invert elevation values by subtracting each structure elevation from the highest elevation value in the dataset. Looking at the dataset, the highest elevation value is 1025.880859. 
+
+#SWMM also only takes 0, no blanks or NAs, so we have mutated NA vlues in MaxDepth and Aponded to 0
+
 
 #add columns
 junctions_data$InitDepth <- 0
@@ -47,7 +55,7 @@ junctions_data$SurDepth <- 0
 
 ```{r}
 #arrange columns
-junctions <- select(junctions_data, Name,Elevation ,MaxDepth, InitDepth, SurDepth,Aponded)
+junctions <- select(junctions_data, Name, Invert_Elev ,MaxDepth, InitDepth, SurDepth,Aponded)
 ```
 
 

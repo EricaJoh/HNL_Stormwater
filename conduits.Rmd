@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(dplyr)
 library(data.table)
+
 ```
 The storm water conduit shape file was clipped to Wailupe watershed in ArcGIS. 
 
@@ -34,10 +35,11 @@ conduits_data <- read_csv("Conduit_XY_Elev_SpatialJoin.csv")
 ```{r, include=FALSE}
 
 #Only four columns were selected. There are other columns which seem like they would have values usefull in SWMM, however most are  blank, denoted "NA".
-#We will not use length given in the data for now. SWMM can auto-calculate length from the xy coordinates of the nodes and that seems to work best for now, else you get error messages.
+
+#lengths provided by USGS seem to be distance between xy coordinates on a 2D plane. This does not take into consideration elevation, so we will mutate this column further down in the code.
 
 conduits <- conduits_data %>% 
-  select( OBJECTID, ROUGHNESS, OBJECTID_12, RASTERVALU_1) %>% 
+  select( OBJECTID, CALC_LENGT, ROUGHNESS, OBJECTID_12, RASTERVALU_1) %>% 
   rename(Name = OBJECTID, Roughness =ROUGHNESS, Nodes = OBJECTID_12, Elevation = RASTERVALU_1) %>% 
   filter(Nodes !="NA")
 
@@ -58,18 +60,28 @@ conduits
 Currently each conduit has two nodes. During the spatial join, a second row was created for each of the conduit's nodes. We need to organize this data so that each conduit has one row, but two columns, one for the higher elevation node ("from"), and the other for the lower elevation node 
 ```{r}
 #first sort the data by conduit name then by the associated elevation of the storm structure. The conduit with the higher elevation will be listed first. To match the "to" and "from" convention in SWMM we will eventually switch these.
-conduits[with(conduits, order(Name, Elevation)),]
+conduits[with(conduits, order(Name, -Elevation, na.last=FALSE)),]
 
 
 # dcast will reshape or merge duplicate data (in this case "Name) and creat a column for any unique data attached to "Name". It will use the variable "Node" and name unique values of nodes in numerical order.
 
-match <- dcast(setDT(conduits), Name~rowid(Name, prefix="Nodes"), value.var="Nodes")
+match_1 <- dcast(setDT(conduits), Name~rowid(Name, prefix="Nodes"), value.var="Nodes")
+match_2 <- dcast(setDT(conduits), Name~rowid(Name, prefix="Elevation"), value.var="Elevation")
 
 
-#the match function will only have the two variables. We re-merge data tables together using the merge function, Select the columns we want for SWMM, and remove any duplicates. 
+#the match function will only have the two variables. We re-merge data tables together using the merge function 
 
-distinct_conduits <- merge(match, conduits, by = "Name") %>% select(Name, Nodes2, Nodes1, Length, Roughness, InOffset, OutOffset, InitFlow, MaxFlow) %>% distinct() %>%
-    mutate(Roughness = if_else(is.na(Roughness), 0.01, Roughness))
+
+
+distinct_conduits_1 <- merge(match_1, conduits, by = "Name")
+
+#using Elevation, Length, and the Pythag. theorem to find the hypotenuse, or actual length of the conduit then select the columns we want for SWMM, and remove any duplicates. 
+
+distinct_conduits <-merge(match_2, distinct_conduits_1, by = "Name") %>%
+  mutate(Length = (sqrt((CALC_LENGT^2)+(Elevation1-Elevation2)^2))) %>% 
+  select(Name, Nodes2, Nodes1, Length, Roughness, InOffset, OutOffset, InitFlow, MaxFlow) %>% 
+  distinct() %>% 
+  mutate(Roughness = if_else(is.na(Roughness), 0.01, Roughness))
 
 #replace all NA values in Roughness (Manning's N) column with 0.01
 

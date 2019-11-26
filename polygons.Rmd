@@ -37,16 +37,16 @@ polygons <- polygons_data %>%  select(OBJECTID,LAST_EDI_1,SHAPESTAre, SHAPESTLen
   rename(Name = OBJECTID, Area = SHAPESTAre, Width = SHAPESTLen, X_Coord = POINT_X, Y_Coord = POINT_Y)
 #I am keeping the LAST_EDI_1 field because it has good information on what the polygon is and may help us determine subcatchment and infiltration values
 
-#add columns for "subcatchments" file
-polygons$Rain_gage <- 0
-polygons$Outlet <- 0
+#add columns for "subcatchments" file, add model default values
+polygons$Rain_gage <- "R1"
+polygons$Outlet <- "O1"
 polygons$Imperv <- 0
-polygons$Slope <- 0
+polygons$Slope <- 0.5
 polygons$CurbLen <- 0
 polygons$SnowPack <- 0
 
 #arrange
-subc_polygons <- polygons %>% select(Name, Rain_gage, Outlet, Area, Imperv, Width, Slope, CurbLen, SnowPack)
+subc_polygons <- polygons %>% select(Name, Rain_gage, Outlet, Area, Imperv, Width, Slope, CurbLen, SnowPack) %>% distinct()
 ```
 
 
@@ -55,13 +55,15 @@ subc_polygons <- polygons %>% select(Name, Rain_gage, Outlet, Area, Imperv, Widt
 ;;--------------	----------	----------	----------		
 1	0.01	0.1	0.05	0.05	25	OUTLET    		
 ```{r}
-suba_polygons <- polygons %>% select(Name) %>% rename (Subcatchment = Name)
-suba_polygons$N_Imperv <- 0
-suba_polygons$N_Perv <- 0
-suba_polygons$S_Imperv <- 0
-suba_polygons$S_Perv <- 0
-suba_polygons$PctZero <- 0
-suba_polygons$RouteTo <- 0
+suba_polygons <- polygons %>% select(Name) %>% rename (Subcatchment = Name)%>% distinct()
+suba_polygons$N_Imperv <- 0.01
+suba_polygons$N_Perv <- 0.1
+suba_polygons$S_Imperv <- 0.05
+suba_polygons$S_Perv <- 0.05
+suba_polygons$PctZero <- 25
+suba_polygons$RouteTo <- "OUTLET"
+
+#used model defaults
   
 ```
 
@@ -71,11 +73,10 @@ suba_polygons$RouteTo <- 0
 1	3	0.5	4	7	0
 ```{r}
 infil_polygons <-suba_polygons %>% select(Subcatchment)
-infil_polygons$MaxRate <- 0
-infil_polygons$MinRate <- 0
-infil_polygons$Decay <- 0
+infil_polygons$CurveNum <- 0
+infil_polygons$Blank <- 0.5
 infil_polygons$DryTime <- 0
-infil_polygons$MaxInfil <- 0
+
 
 
 ```
@@ -89,7 +90,7 @@ infil_polygons$MaxInfil <- 0
 1	-1007.984	6926.148
 1	-19.96	8133.733
 ```{r}
-polygons_xy <- polygons%>% select(Name, X_Coord, Y_Coord) %>% rename(Subcatchment = Name)
+polygons_xy <- polygons%>% select(Name, X_Coord, Y_Coord) %>% rename(Subcatchment = Name) %>% distinct()
 ```
 
 write csv file
@@ -97,5 +98,6 @@ write csv file
 write.csv(subc_polygons ,"Wailupe_subcpoly_SWMM.csv", row.names = FALSE)
 write.csv(suba_polygons ,"Wailupe_subapoly_SWMM.csv", row.names = FALSE)
 write.csv(polygons_xy ,"Wailupe_polypoly_SWMM.csv", row.names = FALSE)
+write.csv(infil_polygons ,"Wailupe_infilpoly_SWMM.csv", row.names = FALSE)
 ```
 

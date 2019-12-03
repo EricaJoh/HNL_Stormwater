@@ -40,13 +40,13 @@ polygons <- polygons_data %>%  select(OBJECTID,LAST_EDI_1,SHAPESTAre, SHAPESTLen
 #add columns for "subcatchments" file, add model default values
 polygons$Rain_gage <- "R1"
 polygons$Outlet <- "O1"
-polygons$Imperv <- 0
+polygons$Imperv <- 25
 polygons$Slope <- 0.5
 polygons$CurbLen <- 0
-polygons$SnowPack <- 0
+
 
 #arrange
-subc_polygons <- polygons %>% select(Name, Rain_gage, Outlet, Area, Imperv, Width, Slope, CurbLen, SnowPack) %>% distinct()
+subc_polygons <- polygons %>% select(Name, Rain_gage, Outlet, Area, Imperv, Width, Slope, CurbLen) %>% distinct()
 ```
 
 

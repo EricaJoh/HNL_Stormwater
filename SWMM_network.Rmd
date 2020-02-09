@@ -1,0 +1,230 @@
+---
+title: "SWMM_network"
+author: "Erica Johnson"
+date: "2/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read libraries and data file here
+```{r, include=FALSE}
+#Libraries
+library(tidyverse)
+library(dplyr)
+library(data.table)
+library(geosphere)
+library(janitor)
+
+
+#Data with clean names
+#Data are conduits matched to structures. This is because we need conduit xsections from structures)
+data <- read_csv("data.csv") %>% clean_names()
+
+```
+
+Select columns with the data we need to use. Rename them for easy reference.
+```{r}
+conduits <- data %>% 
+  select(
+  conduitname,
+  structurename,
+  x_point,
+  y_point,
+  elevation,
+  subcatchment,
+  roughness,
+  type,
+  diameter,
+  width,
+  height
+  ) %>% 
+  rename(
+    name = conduitname,
+    node= structurename,
+    x = x_point,
+    y = y_point,
+    subc = subcatchment,
+    shapes = type
+    )
+
+
+#Add the rest of the columns we need. SWMM does not take "NA" the default blank value for R, so we populate columns with 0 for now.
+conduits$InitFlow <- 0
+conduits$MaxFlow <- 0
+conduits$Length <- 0
+conduits$InOffset <- 0
+conduits$OutOffset <- 0
+```
+
+"Length" provided by USGS is distance between xy points. This "length"" is not the actual length of the conduit because it does not take into consideration height (xyz), so we will use the difference between lower distance between xy points calcualte the actual length further down in the code.  
+
+We will also re-calculate distance between xy points because different sources return  different values for some of the conduits and some conduits need to have this distance calculated anyway because it is blank. 
+
+Step 1 - Arrange and reshape data 
+Note: each conduit has start xy and end xy,as well as two different nodes so there are duplicate rows for each conduit
+```{r}
+
+#Arrange by elevation
+conduits_elev <- conduits[with(conduits, order(name, -elevation, na.last=FALSE)),]
+
+
+#Reshape or merge duplicate data (in this case "name") using dcast to create a column for any unique data attached to "name"
+conduits_nodes <- dcast(setDT(conduits_elev), name~rowid(name, prefix="nodes"), value.var="nodes")
+
+
+#Make a table with both x coordinates and y coordinates in one row. This will split data
+conduits_x <- dcast(setDT(conduits), Name~rowid(Name, prefix="x"), value.var="x")
+conduits_y <- dcast(setDT(conduits), Name~rowid(Name, prefix="y"), value.var="y")
+
+#The match function will only have the two variables. We will need to merge conduit and "match"" data tables together using the merge function.
+conduits_xy <- merge(conduits_x, conduits_y, by = "name")
+conduits_nodes <- merge(conduits_xy, conduits_nodes, by = "name")
+
+```
+
+Step 2 - Length
+
+We must now calculate the length of the conduits using the following steps:
+a. Find distance "length" between xy coordinates of each conduit using geosphere.
+b. Use difference in elevation to calculate height
+c. Use pythag. theorem to calculate length
+
+```{r}
+#part a -  distance
+conduits_dist <- conduits_nodes %>%  rowwise() %>% mutate (dist = distm(c(x1, y1), c(x2, y2), fun=distHaversine)) %>% mutate(dist_ft = width*3.28084)
+
+#part b - height
+conduits_height <- dcast(setDT(conduits_elev), Name~rowid(name, prefix="elevation"), value.var="elevation")
+conduits_height2 <- merge(conduits_dist, conduits_height, by = "name")
+
+#part c - length, also mearge with original data columns to retain all data
+conduits_length <- merge(conduits_height2, conduits, by = "name") %>%  mutate (length = sqrt((width_ft)^2 +(elevation1-elevation2)^2))
+
+```
+
+Replace any NA values for columns. As a precaution, remove any dupicates.
+Use roughness value 0.01, for concrete pipes found in Appendix A-8 pg. 184 of EPA manual
+```{r}
+conduits_unique <- conduits_length %>% 
+  mutate(
+    roughness = if_else(is.na(roughness), 0.01, roughness)) %>% 
+  select(
+    Name, 
+    nodes1, 
+    nodes2, 
+    length, 
+    roughness, 
+    InOffset, 
+    OutOffset, 
+    InitFlow, 
+    MaxFlow, 
+    shapes, 
+    diameter, 
+    width, 
+    height, 
+    elevation1, 
+    elevation2) %>% 
+  distinct() 
+
+
+```
+
+Step 3- xsection of conduits
+
+a - replace conduit types with shapes provided in SWMM
+```{r}
+conduits_xsections <- conduits_unique %>% 
+  mutate (shapes = str_replace_all(shapes, "Reinforced Concrete Pipe", "CIRCULAR")) %>% 
+  mutate (shapes = str_replace_all(shapes, "Box Culvert", "RECT_CLOSED")) %>% 
+  mutate (shapes = str_replace_all(shapes, "Channel", "TRAPEZOIDAL")) %>% 
+  mutate (shapes = str_replace_all(shapes, "Ditch", "RECT_OPEN")) %>% 
+  mutate (shapes = str_replace_all(shapes, "Other", "RECT_OPEN")) %>% 
+  distinct()
+```
+
+b - concrete pipe dimensions
+```{r}
+xsections_circ <- conduits_xsections %>% 
+  filter(
+    Shapes == "CIRCULAR"
+    ) %>% 
+  select (
+    name, 
+    shapes, 
+    diameter) %>% 
+  rename(
+    Geom1 = diameter
+    ) %>% 
+  mutate(
+    Geom1 = ifelse(is.na(Geom1), 23, Geom1)
+    ) %>% 
+  mutate(
+    Geom1 = ifelse((Geom1=="Other"), 23, (Geom1))
+    )
+xsections_circ$Geom2 <- 0
+xsections_circ$Geom3 <- 0
+xsections_circ$Geom4 <- 0
+xsections_circ$Barrels <- 1
+xsections_circ$Culvert <- 0
+```
+
+c - box culverts, ditches, and "other" conduit dimensions
+```{r}
+xsections_rect <- conduits_xsections %>% 
+  filter(
+    shapes == "RECT_CLOSED" | shapes == "RECT_OPEN"
+    ) %>% 
+  select (
+    name, 
+    shapes, 
+    width, 
+    height
+    ) %>% 
+  rename (
+    Geom1 = width, 
+    Geom2 = height
+    ) %>% 
+  mutate(
+    Geom1 = ifelse(is.na(Geom1), 5, Geom1)
+    ) %>% 
+  mutate(Geom2 = ifelse(is.na(Geom2), 5, Geom2)
+         )
+xsections_rect$Geom3 <- 0
+xsections_rect$Geom4 <- 0
+xsections_rect$Barrels <- 1
+xsections_rect$Culvert <- 0
+```
+
+d - channel (channelized stream) dimenssions
+```{r}
+xsections_trap <- conduits_xsections %>% 
+  filter(
+    Shapes == "TRAPEZOIDAL"
+    ) %>% 
+  select (
+    Name, Shapes, width, height
+    ) %>% 
+  rename(
+    Geom1 = width, Geom2 = height
+    ) %>% 
+  mutate(
+    Geom1 = ifelse(is.na(Geom1), 30, Geom1)
+    ) %>% 
+  mutate(
+    Geom2 = ifelse(is.na(Geom2), 10, Geom2)
+    )
+#Geom3 and Geom4 are side lopes, which literature indicate vary from 1/1 to 1/2.  Ive seen side slopes perpendicular to the ground, especially where homes are built.
+xsections_trap$Geom3 <- 1
+xsections_trap$Geom4 <- 1
+xsections_trap$Barrels <- 1
+xsections_trap$Culvert <- 0
+```
+
+Step 4 - make a table by subcatchment
+```{r}
+ 
+```
+

@@ -78,7 +78,7 @@ Now we arrange columns and replace any NA values.
 ```{r}
 
 #arrange columns
-junctions <- conduits %>% select( Nodes , Elevation,  MaxDepth, InitDepth, SurDepth, Aponded) %>% mutate(MaxDepth = if_else(is.na(MaxDepth), 0, MaxDepth)) %>% mutate(Aponded = if_else(is.na(Aponded), 0, Aponded)) %>% distinct()
+junctions <- conduits %>% select( Nodes , Elevation,  MaxDepth, InitDepth, SurDepth, Aponded) %>% mutate(MaxDepth = ifelse(is.na(MaxDepth), 0, MaxDepth)) %>% mutate(Aponded = ifelse(is.na(Aponded), 0, Aponded)) %>% distinct()
 
 ```
 
@@ -97,7 +97,7 @@ See SWMM example below:
 ```{r}
 
 #SWMM columns we need are: Node	X-Coord	Y-Coord
-coordinates <- conduits %>% select (Nodes, POINT_X, POINT_Y) %>% rename (Name = Nodes ,X_Coord =  POINT_X , Y_Coord = POINT_Y) %>% distinct()
+coordinates <- conduits %>% select (Nodes, POINT_X, POINT_Y) %>% rename (Name = Nodes, X_Coord =  POINT_X , Y_Coord = POINT_Y) %>% distinct()
 
 ```
 

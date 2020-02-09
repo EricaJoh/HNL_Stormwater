@@ -193,10 +193,10 @@ xsections <- streams %>% select(Name)
 
 #add columns for Geom1, Geom2, Geom3, Geom4,Barrels, and Culvert
 xsections$Type <- "Trapezoidal"
-xsections$Geom1 <- 1
-xsections$Geom2 <- 1
-xsections$Geom3 <- 0
-xsections$Geom4 <- 0
+xsections$Geom1 <- 30
+xsections$Geom2 <- 10
+xsections$Geom3 <- 1
+xsections$Geom4 <- 1
 xsections$Barrels <- 1
 xsections$Culvert <- 0
 

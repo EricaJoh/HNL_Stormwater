@@ -47,7 +47,7 @@ We will also re-calculate distance between xy points because different sources r
 #we select TYPE now for the next file we need
 
 conduits <- conduits_data %>% 
-  select( OBJECTID, ROUGHNESS, OBJECTID_12, RASTERVALU_1, TYPE, POINT_X, POINT_Y, SLOPE) %>% rename(Name = OBJECTID, Roughness = ROUGHNESS, Nodes = OBJECTID_12, Elevation = RASTERVALU_1) 
+  select( OBJECTID, ROUGHNESS, OBJECTID_12, RASTERVALU_1, TYPE, POINT_X, POINT_Y, SLOPE, DIAMETER, WIDTH, HEIGHT) %>% rename(Name = OBJECTID, Roughness = ROUGHNESS, Nodes = OBJECTID_12, Elevation = RASTERVALU_1) 
 
 #then add the rest of the columns. SWMM does not take "NA" the default blank value for R, so we must populate columns with 0.
 
@@ -107,7 +107,6 @@ XY_dist <- merge_XY_nodes %>%  rowwise() %>% mutate (width = distm(c(POINT_X1, P
 Step 2-3 : use difference in elevation to calculate height, then length
 ```{r}
 
-
 match_elev <- dcast(setDT(arranged), Name~rowid(Name, prefix="Elevation"), value.var="Elevation")
 
 merge_XY_elev <- merge(XY_dist, match_elev, by = "Name" )
@@ -127,8 +126,7 @@ Also filter any conduits that do not have two nodes assigned to them - SWMM will
 ```{r}
 
 # data frame for both file outputs:
-distinct_conduits_1 <- length %>% mutate(Roughness = if_else(is.na(Roughness), 0.02, Roughness)) %>%  filter(Nodes2 !="NA") %>% filter(Nodes1 !="NA") %>% select(Name, Nodes1, Nodes2, length, Roughness, InOffset, OutOffset, InitFlow, MaxFlow, TYPE, Elevation1, Elevation2) %>% 
-  distinct() 
+distinct_conduits_1 <- length %>% mutate(Roughness = if_else(is.na(Roughness), 0.02, Roughness)) %>%  filter(Nodes2 !="NA") %>% filter(Nodes1 !="NA") %>% select(Name, Nodes1, Nodes2, length, Roughness, InOffset, OutOffset, InitFlow, MaxFlow, TYPE, DIAMETER, WIDTH, HEIGHT, Elevation1, Elevation2) %>% distinct() 
   
 
 
@@ -153,31 +151,51 @@ The next file we will prepare are the cross sections of the conduits. See SWMM e
 ```{r}
 #for conduits, use Type to populate the Shape column that SWMM takes. Rename the types by the different shapes provided by SWMM
 
-xsections <- distinct_conduits_1%>% select(Name, TYPE) %>% 
+xsections <- distinct_conduits_1%>% select(Name, TYPE, DIAMETER, WIDTH, HEIGHT) %>% 
   rename (Shapes =TYPE) %>% 
-  mutate (Shapes = str_replace_all(Shapes, "Reinforced Concrete Pipe", "Circular")) %>% 
-  mutate (Shapes = str_replace_all(Shapes, "Box Culvert", "Closed Rectangular")) %>% 
-  mutate (Shapes = str_replace_all(Shapes, "Channel" , "Trapezoidal")) %>% 
-  mutate (Shapes = str_replace_all(Shapes, "Ditch" , "Rectangular")) %>% 
-  mutate (Shapes = str_replace_all(Shapes, "Other", "Rectangular")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Reinforced Concrete Pipe", "CIRCULAR")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Box Culvert", "RECT_CLOSED")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Channel", "TRAPEZOIDAL")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Ditch", "RECT_OPEN")) %>% 
+  mutate (Shapes = str_replace_all(Shapes, "Other", "RECT_OPEN")) %>% 
   distinct()
 
-#add columns for Geom1, Geom2, Geom3, Geom4,Barrels, and Culvert
-xsections$Geom1 <- 1
-xsections$Geom2 <- 1
-xsections$Geom3 <- 0
-xsections$Geom4 <- 0
-xsections$Barrels <- 1
-xsections$Culvert <- 0
-
-#added the model default values to columns. Not sure what they mean, but no error message from model now
-                          
 ```
+
+```{r}
+xsections_circ <- xsections %>% filter(Shapes == "CIRCULAR") %>% select (Name, Shapes, DIAMETER) %>% rename(Geom1 = DIAMETER) %>% mutate(Geom1 = ifelse(is.na(Geom1), 23, Geom1)) %>% mutate(Geom1 = ifelse((Geom1=="Other"), 23, (Geom1)))
+xsections_circ$Geom2 <- 0
+xsections_circ$Geom3 <- 0
+xsections_circ$Geom4 <- 0
+xsections_circ$Barrels <- 1
+xsections_circ$Culvert <- 0
+```
+
+```{r}
+xsections_rect <- xsections %>% filter(Shapes == "RECT_CLOSED" | Shapes == "RECT_OPEN") %>% select (Name, Shapes, WIDTH, HEIGHT) %>% rename(Geom1 = WIDTH, Geom2 = HEIGHT) %>% mutate(Geom1 = ifelse(is.na(Geom1), 5, Geom1)) %>% mutate(Geom2 = ifelse(is.na(Geom2), 5, Geom2))
+xsections_rect$Geom3 <- 0
+xsections_rect$Geom4 <- 0
+xsections_rect$Barrels <- 1
+xsections_rect$Culvert <- 0
+
+```
+
+```{r}
+xsections_trap <- xsections %>% filter(Shapes == "TRAPEZOIDAL") %>% select (Name, Shapes, WIDTH, HEIGHT) %>% rename(Geom1 = WIDTH, Geom2 = HEIGHT) %>% mutate(Geom1 = ifelse(is.na(Geom1), 30, Geom1)) %>% mutate(Geom2 = ifelse(is.na(Geom2), 10, Geom2))
+#Geom3 and Geom4 are side lopes, which literature indicate vary from 1/1 to 1/2/ Ive seen side slopes  perpendicular to the ground, especially where homes are built.
+xsections_trap$Geom3 <- 1
+xsections_trap$Geom4 <- 1
+xsections_trap$Barrels <- 1
+xsections_trap$Culvert <- 0
+```
+
 
 Xsections file output
 ```{r}
+bind<-rbind(xsections_circ, xsections_rect, xsections_trap)
 
-write.csv(xsections,"Wailupe_xsections_SWMM.csv", row.names = FALSE)
+
+write.csv(bind,"Wailupe_xsections_SWMM.csv", row.names = FALSE)
    
 ```
 

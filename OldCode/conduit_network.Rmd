@@ -1,5 +1,5 @@
 ---
-title: "conduit_vertices"
+title: "stormwater_network"
 author: "Erica Johnson"
 date: "2/27/2020"
 output: html_document
@@ -72,8 +72,14 @@ We will also re-calculate distance between xy points because different sources r
 Step 1 - Create conduit names and assign conduits to node systematically, using stream subcatchment and arranged node order
 
 ```{r}
-#Arrange by subc and elevation
-arrange_subc <- conduits[with(conduits, order(name, -y, na.last=FALSE)),]
+#Index xy coordinates with unique IDs if different, same IDs if repeated
+nodes <- conduits %>% mutate(node = group_indices(conduits, x, y))
+
+#arrange by conduit name and descending elevation
+arrange <- nodes[with(nodes, order(name, -elevation, na.last=FALSE)),]
+
+```
+
 
 conduit_assign <- arrange_subc %>% 
    mutate(
@@ -95,11 +101,10 @@ conduit_assign$con2 <- apply(
   conduit_assign,1,function(x) paste((x[17]),sep ="_",(x[1]))
   ) 
 
-#remove space
+#remove space in the name
 conduit_assign$con2 <- gsub(
   '\\s+', '', conduit_assign$con2
   )
-```
 
 
 

@@ -196,6 +196,9 @@ write.csv(conduit_stream,"conduit_stream.csv", row.names = FALSE)
 
 ```{r}
 xsection_stream <- length %>% 
+  filter(
+    subc <= 3|subc == 34|subc == 38 |subc == 24 | subc == 7
+  ) %>% 
   rename(
     link = name
     ) %>% 
@@ -220,7 +223,16 @@ write.csv(xsection_stream,"xsection_stream.csv", row.names = FALSE)
 ;;--------------	----------	----------	----------	
 ```{r}
 
-junctions_stream <- conduit_assign %>% select(nodes, elevation) %>% rename(name = nodes)
+junctions_stream <- conduit_assign %>% 
+  select(
+    nodes, 
+    elevation
+    ) %>% rename(
+      name = nodes
+      ) %>% 
+  filter(
+    subc <= 3|subc == 34|subc == 38 |subc == 24 | subc == 7
+  ) 
 junctions_stream$maxdepth <- 0
 junctions_stream$initdepth <- 0
 junctions_stream$surdepth <- 0
@@ -234,7 +246,19 @@ write.csv(junctions_stream,"junctions_stream.csv", row.names = FALSE)
 
 SWMM takes x and y that are in decimal degrees  (lat and long).
 ```{r}
-coordinates_stream <- conduit_assign %>% select(nodes, x, y) %>% rename(x_coord = x, y_coord =y)
+coordinates_stream <- conduit_assign %>% 
+  select(
+    nodes, 
+    x, 
+    y
+         ) %>% 
+  rename(
+    x_coord = x, 
+    y_coord =y
+    ) %>% 
+  filter(
+    subc <= 3|subc == 34|subc == 38 |subc == 24 | subc == 7
+  ) 
 
 write.csv(coordinates_stream,"coordinates_stream.csv", row.names = FALSE)
 ```
